@@ -113,8 +113,14 @@ async def upload_staff_photo(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """Upload staff photo. Returns URL path."""
+    """Upload staff photo. Returns URL path. Expects multipart/form-data with field 'file'."""
     from app.models.staff import Staff
+    
+    if not file or not file.filename:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="No file provided. Send multipart/form-data with a 'file' field.",
+        )
     
     staff = db.query(Staff).filter(Staff.id == staff_id).first()
     if not staff:

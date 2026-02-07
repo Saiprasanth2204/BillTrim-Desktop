@@ -3,7 +3,7 @@ Branding settings and company settings endpoints (logo, SMS, etc.)
 """
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel
 from typing import Any, Optional
 from app.core.database import get_db
 from app.models.user import User, RoleEnum
@@ -60,18 +60,6 @@ class CompanySmsUpdate(BaseModel):
     sms_enabled: Optional[bool] = None
     sender_id: Optional[str] = None
 
-    @field_validator("sender_id")
-    @classmethod
-    def validate_sender_id(cls, v):
-        if v is None or v == "":
-            return None
-        v = v.replace(" ", "").upper()
-        if len(v) != 6:
-            raise ValueError("Sender ID must be exactly 6 characters")
-        if not v.isalnum():
-            raise ValueError("Sender ID must contain only letters and numbers")
-        return v
-
 
 def require_owner_or_superuser(current_user: Any) -> None:
     """Dependency: raise if not owner or superuser. Do not use User as return type (not a Pydantic type)."""
@@ -104,21 +92,42 @@ async def get_company_sms(
     )
 
 
+def _normalize_sender_id(value: Optional[str]) -> Optional[str]:
+    """Normalize sender_id: strip, uppercase, alphanumeric only. Return None if empty. Raise if invalid."""
+    if value is None or (isinstance(value, str) and value.strip() == ""):
+        return None
+    s = str(value).strip().upper()
+    s = "".join(c for c in s if c.isalnum())
+    if not s:
+        return None
+    if len(s) != 6:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Sender ID must be exactly 6 characters (letters and numbers only)",
+        )
+    if not s.isalnum():
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Sender ID must contain only letters and numbers",
+        )
+    return s
+
+
 @router.patch("/company-sms", response_model=CompanySmsResponse)
 async def update_company_sms(
     body: CompanySmsUpdate,
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user),
-    _=Depends(require_owner_or_superuser),
 ):
     """Update SMS opt-in and optional sender ID for the salon. Owner only."""
+    require_owner_or_superuser(current_user)
     company = db.query(Company).filter(Company.id == current_user.company_id).first()
     if not company:
         raise HTTPException(status_code=404, detail="Company not found")
     if body.sms_enabled is not None:
         company.sms_enabled = body.sms_enabled
     if body.sender_id is not None:
-        company.sender_id = body.sender_id if body.sender_id else None
+        company.sender_id = _normalize_sender_id(body.sender_id)
     db.commit()
     db.refresh(company)
     return CompanySmsResponse(

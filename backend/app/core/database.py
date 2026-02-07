@@ -3,6 +3,8 @@ from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
 from app.core.config import settings
 import os
+from app.core.logging_config import get_logger
+logger = get_logger("auth")
 
 # Ensure database path is absolute and directory exists
 # Get the actual path from DATABASE_URL (which handles relative paths correctly)
@@ -38,6 +40,8 @@ Base = declarative_base()
 def get_db():
     db = SessionLocal()
     try:
+        logger.error("get_db: opened")
         yield db
     finally:
+        logger.error("get_db: closing")
         db.close()

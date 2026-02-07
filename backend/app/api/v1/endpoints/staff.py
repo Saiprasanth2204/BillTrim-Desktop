@@ -3,7 +3,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from app.core.database import get_db
 from app.models.user import User
-from app.models.staff import Staff, StaffWeekOff, StaffRoleEnum
+from app.models.staff import Staff, StaffWeekOff, StaffLeave, StaffRoleEnum
 from app.api.v1.endpoints.auth import get_current_user, get_effective_branch_id, get_effective_company_id
 from app.schemas.staff import StaffCreate, StaffUpdate, StaffResponse
 
@@ -148,7 +148,7 @@ async def delete_staff(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    """Delete staff member (soft delete by setting is_active=False)"""
+    """Delete staff member (soft delete by setting is_active=False). Also remove their leaves so they are not shown in leaves section or dashboard."""
     effective_company_id = get_effective_company_id(current_user)
     query = db.query(Staff).filter(Staff.id == staff_id)
     if effective_company_id is not None:
@@ -156,6 +156,8 @@ async def delete_staff(
     staff = query.first()
     if not staff:
         raise HTTPException(status_code=404, detail="Staff not found")
+    # Delete all leave records for this staff so they are not shown in leaves/dashboard
+    db.query(StaffLeave).filter(StaffLeave.staff_id == staff_id).delete(synchronize_session=False)
     # Soft delete by setting is_active to False
     staff.is_active = False
     db.commit()

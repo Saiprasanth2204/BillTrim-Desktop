@@ -1,7 +1,7 @@
-from typing import Optional, List
+from typing import Optional
 from datetime import datetime, timezone
 from starlette.requests import Request
-from fastapi import APIRouter, Depends, Query, HTTPException, Request
+from fastapi import APIRouter, Depends, Query, HTTPException, Request, status
 from sqlalchemy.orm import Session, joinedload
 from sqlalchemy import func, cast, Date, extract, case, String
 from app.core.database import get_db

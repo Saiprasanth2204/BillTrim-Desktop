@@ -730,6 +730,438 @@ def _run_import(db: Session, data: dict) -> None:
             pass
 
 
+def _run_import_branch(
+    db: Session,
+    data: dict,
+    company_id: int,
+    created_by_user_id: int,
+) -> tuple:
+    """
+    Import one branch from export JSON into the given company. Creates a new branch and all
+    related data (staff, services, memberships, customers, appointments, invoices, etc.).
+    Staff are created with user_id=None (no login); invoice/payment created_by = created_by_user_id.
+    Returns (new_branch_id, new_branch_name).
+    """
+    from app.models import (
+        Branch,
+        Staff, StaffWeekOff, StaffLeave,
+        Customer, Membership, Service, Product,
+        Appointment, AppointmentService,
+        Invoice, InvoiceItem, Payment,
+        Attendance,
+    )
+
+    def _parse_dt(s):
+        if not s:
+            return None
+        try:
+            return datetime.fromisoformat(s.replace("Z", "+00:00"))
+        except Exception:
+            return None
+
+    def _parse_time(s):
+        if s is None:
+            return None
+        if isinstance(s, time):
+            return s
+        if isinstance(s, datetime):
+            return s.time()
+        if isinstance(s, str):
+            s = s.strip()
+            if not s:
+                return None
+            try:
+                parts = s.split(":")
+                if len(parts) >= 2:
+                    h, m = int(parts[0]), int(parts[1])
+                    sec = int(parts[2]) if len(parts) > 2 else 0
+                    if 0 <= h <= 23 and 0 <= m <= 59 and 0 <= sec <= 59:
+                        return time(h, m, sec)
+                dt = datetime.fromisoformat(s.replace("Z", "+00:00"))
+                return dt.time()
+            except Exception:
+                return None
+        return None
+
+    branches_list = data.get("branches") or []
+    if not branches_list:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Export file has no branches.",
+        )
+    branch_row = branches_list[0]
+    source_branch_id = branch_row.get("id")
+    if source_branch_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid export: branch has no id.",
+        )
+    source_company_id = branch_row.get("company_id")
+
+    id_maps = {
+        "companies": {source_company_id: company_id} if source_company_id is not None else {},
+        "branches": {},
+        "users": {},  # all mapped to created_by_user_id for invoice/payment
+        "staff": {},
+        "customers": {},
+        "memberships": {},
+        "services": {},
+        "products": {},
+        "appointments": {},
+        "invoices": {},
+    }
+
+    # Create the new branch under owner's company
+    new_branch = Branch(
+        company_id=company_id,
+        name=branch_row.get("name", "Imported Branch"),
+        address=branch_row.get("address"),
+        phone=branch_row.get("phone"),
+        email=branch_row.get("email"),
+        gstin=branch_row.get("gstin"),
+        state=branch_row.get("state"),
+        state_code=branch_row.get("state_code"),
+        max_logins_per_branch=int(branch_row.get("max_logins_per_branch", 5)),
+        approval_status=branch_row.get("approval_status", "approved"),
+        is_active=bool(branch_row.get("is_active", True)),
+        created_at=_parse_dt(branch_row.get("created_at")),
+        updated_at=_parse_dt(branch_row.get("updated_at")),
+    )
+    db.add(new_branch)
+    db.flush()
+    id_maps["branches"][source_branch_id] = new_branch.id
+    new_branch_id = new_branch.id
+    new_branch_name = new_branch.name
+
+    # Ensure any company id is mapped
+    for c in data.get("companies", []):
+        cid = c.get("id")
+        if cid is not None:
+            id_maps["companies"][cid] = company_id
+
+    # Staff: only for this branch; user_id = None (no login for imported staff)
+    for row in data.get("staff", []):
+        if row.get("branch_id") != source_branch_id:
+            continue
+        old_id = row.pop("id", None)
+        s = Staff(
+            company_id=company_id,
+            branch_id=new_branch_id,
+            user_id=None,
+            name=row.get("name", "Staff"),
+            phone=row.get("phone", ""),
+            email=row.get("email"),
+            role=row.get("role", "stylist"),
+            commission_percentage=float(row.get("commission_percentage", 0) or 0),
+            standard_weekly_off=row.get("standard_weekly_off"),
+            standard_in_time=_parse_time(row.get("standard_in_time")),
+            standard_out_time=_parse_time(row.get("standard_out_time")),
+            image_url=row.get("image_url"),
+            is_active=bool(row.get("is_active", True)),
+            joining_date=_parse_dt(row.get("joining_date")),
+            created_at=_parse_dt(row.get("created_at")),
+            updated_at=_parse_dt(row.get("updated_at")),
+        )
+        db.add(s)
+        db.flush()
+        if old_id is not None:
+            id_maps["staff"][old_id] = s.id
+
+    # Staff week offs and leaves for imported staff
+    for row in data.get("staff_week_offs", []):
+        if row.get("staff_id") not in id_maps["staff"]:
+            continue
+        db.add(StaffWeekOff(
+            staff_id=id_maps["staff"][row["staff_id"]],
+            day_of_week=row["day_of_week"],
+            is_active=bool(row.get("is_active", True)),
+            created_at=_parse_dt(row.get("created_at")),
+        ))
+    for row in data.get("staff_leaves", []):
+        if row.get("staff_id") not in id_maps["staff"]:
+            continue
+        db.add(StaffLeave(
+            staff_id=id_maps["staff"][row["staff_id"]],
+            leave_date=_parse_dt(row["leave_date"]),
+            leave_from=_parse_dt(row.get("leave_from")),
+            leave_to=_parse_dt(row.get("leave_to")),
+            reason=row.get("reason"),
+            is_planned=bool(row.get("is_planned", True)),
+            is_approved=bool(row.get("is_approved", False)),
+            created_at=_parse_dt(row.get("created_at")),
+        ))
+
+    # Memberships for this branch
+    for row in data.get("memberships", []):
+        if row.get("branch_id") != source_branch_id:
+            continue
+        old_id = row.pop("id", None)
+        m = Membership(
+            company_id=company_id,
+            branch_id=new_branch_id,
+            name=row.get("name", ""),
+            description=row.get("description"),
+            discount_percentage=float(row.get("discount_percentage", 0) or 0),
+            is_active=bool(row.get("is_active", True)),
+            created_at=_parse_dt(row.get("created_at")),
+            updated_at=_parse_dt(row.get("updated_at")),
+        )
+        db.add(m)
+        db.flush()
+        if old_id is not None:
+            id_maps["memberships"][old_id] = m.id
+
+    # Services and products for this branch
+    for row in data.get("services", []):
+        if row.get("branch_id") != source_branch_id:
+            continue
+        old_id = row.pop("id", None)
+        svc = Service(
+            company_id=company_id,
+            branch_id=new_branch_id,
+            name=row.get("name", ""),
+            description=row.get("description"),
+            price=float(row.get("price", 0) or 0),
+            duration_minutes=int(row.get("duration_minutes", 30) or 30),
+            hsn_sac_code=row.get("hsn_sac_code"),
+            gst_rate_id=row.get("gst_rate_id"),
+            is_active=bool(row.get("is_active", True)),
+            created_at=_parse_dt(row.get("created_at")),
+            updated_at=_parse_dt(row.get("updated_at")),
+        )
+        db.add(svc)
+        db.flush()
+        if old_id is not None:
+            id_maps["services"][old_id] = svc.id
+
+    for row in data.get("products", []):
+        if row.get("branch_id") != source_branch_id:
+            continue
+        old_id = row.pop("id", None)
+        p = Product(
+            company_id=company_id,
+            branch_id=new_branch_id,
+            name=row.get("name", ""),
+            description=row.get("description"),
+            price=float(row.get("price", 0) or 0),
+            stock_quantity=int(row.get("stock_quantity", 0) or 0),
+            hsn_sac_code=row.get("hsn_sac_code"),
+            gst_rate_id=row.get("gst_rate_id"),
+            is_active=bool(row.get("is_active", True)),
+            created_at=_parse_dt(row.get("created_at")),
+            updated_at=_parse_dt(row.get("updated_at")),
+        )
+        db.add(p)
+        db.flush()
+        if old_id is not None:
+            id_maps["products"][old_id] = p.id
+
+    # Customers: this branch or same company with no branch
+    for row in data.get("customers", []):
+        bid = row.get("branch_id")
+        cid = row.get("company_id")
+        if bid != source_branch_id and (bid is not None or cid != source_company_id):
+            continue
+        old_id = row.pop("id", None)
+        mid = id_maps["memberships"].get(row["membership_id"], row.get("membership_id")) if row.get("membership_id") else None
+        cust = Customer(
+            company_id=company_id,
+            branch_id=new_branch_id,
+            membership_id=mid,
+            name=row.get("name", ""),
+            phone=row.get("phone", ""),
+            email=row.get("email"),
+            address=row.get("address"),
+            date_of_birth=_parse_dt(row.get("date_of_birth")),
+            gender=row.get("gender"),
+            notes=row.get("notes"),
+            total_visits=int(row.get("total_visits", 0) or 0),
+            total_spent=float(row.get("total_spent", 0) or 0),
+            last_visit=_parse_dt(row.get("last_visit")),
+            created_at=_parse_dt(row.get("created_at")),
+            updated_at=_parse_dt(row.get("updated_at")),
+        )
+        db.add(cust)
+        db.flush()
+        if old_id is not None:
+            id_maps["customers"][old_id] = cust.id
+
+    # Appointments for this branch
+    for row in data.get("appointments", []):
+        if row.get("branch_id") != source_branch_id:
+            continue
+        old_id = row.pop("id", None)
+        cust_id = id_maps["customers"].get(row.get("customer_id"), row.get("customer_id"))
+        staff_id = id_maps["staff"].get(row.get("staff_id"), row.get("staff_id"))
+        appt = Appointment(
+            company_id=company_id,
+            branch_id=new_branch_id,
+            customer_id=cust_id,
+            staff_id=staff_id,
+            appointment_date=_parse_dt(row.get("appointment_date")),
+            status=row.get("status", "scheduled"),
+            notes=row.get("notes"),
+            checked_in_at=_parse_dt(row.get("checked_in_at")),
+            completed_at=_parse_dt(row.get("completed_at")),
+            created_by=created_by_user_id,
+            created_at=_parse_dt(row.get("created_at")),
+            updated_at=_parse_dt(row.get("updated_at")),
+        )
+        db.add(appt)
+        db.flush()
+        if old_id is not None:
+            id_maps["appointments"][old_id] = appt.id
+
+    for row in data.get("appointment_services", []):
+        if row.get("appointment_id") not in id_maps["appointments"]:
+            continue
+        db.add(AppointmentService(
+            appointment_id=id_maps["appointments"][row["appointment_id"]],
+            service_id=id_maps["services"].get(row["service_id"], row["service_id"]),
+            quantity=int(row.get("quantity", 1) or 1),
+            price=float(row.get("price", 0) or 0),
+        ))
+
+    # Invoices for this branch (created_by = owner)
+    for row in data.get("invoices", []):
+        if row.get("branch_id") != source_branch_id:
+            continue
+        old_id = row.pop("id", None)
+        cust_id = id_maps["customers"].get(row.get("customer_id"), row.get("customer_id")) if row.get("customer_id") else None
+        appt_id = id_maps["appointments"].get(row.get("appointment_id"), row.get("appointment_id")) if row.get("appointment_id") else None
+        orig_number = (row.get("invoice_number") or "INV").strip() or "INV"
+        inv_number = f"{orig_number}-B{new_branch_id}-{old_id}" if old_id is not None else f"{orig_number}-B{new_branch_id}"
+        inv = Invoice(
+            company_id=company_id,
+            branch_id=new_branch_id,
+            customer_id=cust_id,
+            appointment_id=appt_id,
+            invoice_number=inv_number,
+            invoice_date=_parse_dt(row["invoice_date"]),
+            subtotal=float(row.get("subtotal", 0) or 0),
+            discount_amount=float(row.get("discount_amount", 0) or 0),
+            tax_amount=float(row.get("tax_amount", 0) or 0),
+            total_amount=float(row.get("total_amount", 0) or 0),
+            paid_amount=float(row.get("paid_amount", 0) or 0),
+            status=row.get("status", "draft"),
+            notes=row.get("notes"),
+            created_by=created_by_user_id,
+            created_at=_parse_dt(row.get("created_at")),
+            updated_at=_parse_dt(row.get("updated_at")),
+        )
+        db.add(inv)
+        db.flush()
+        if old_id is not None:
+            id_maps["invoices"][old_id] = inv.id
+
+    for row in data.get("invoice_items", []):
+        if row.get("invoice_id") not in id_maps["invoices"]:
+            continue
+        db.add(InvoiceItem(
+            invoice_id=id_maps["invoices"][row["invoice_id"]],
+            service_id=id_maps["services"].get(row.get("service_id"), row.get("service_id")) if row.get("service_id") else None,
+            product_id=id_maps["products"].get(row.get("product_id"), row.get("product_id")) if row.get("product_id") else None,
+            staff_id=id_maps["staff"].get(row.get("staff_id"), row.get("staff_id")) if row.get("staff_id") else None,
+            description=row.get("description", ""),
+            quantity=int(row.get("quantity", 1) or 1),
+            unit_price=float(row.get("unit_price", 0) or 0),
+            discount_amount=float(row.get("discount_amount", 0) or 0),
+            tax_rate=float(row.get("tax_rate", 0) or 0),
+            tax_amount=float(row.get("tax_amount", 0) or 0),
+            total_amount=float(row.get("total_amount", 0) or 0),
+            hsn_sac_code=row.get("hsn_sac_code"),
+        ))
+
+    for row in data.get("payments", []):
+        if row.get("invoice_id") not in id_maps["invoices"]:
+            continue
+        db.add(Payment(
+            invoice_id=id_maps["invoices"][row["invoice_id"]],
+            amount=float(row.get("amount", 0) or 0),
+            payment_mode=row.get("payment_mode", "cash"),
+            transaction_id=row.get("transaction_id"),
+            notes=row.get("notes"),
+            created_by=created_by_user_id,
+            created_at=_parse_dt(row.get("created_at")),
+        ))
+
+    for row in data.get("attendance", []):
+        if row.get("staff_id") not in id_maps["staff"]:
+            continue
+        db.add(Attendance(
+            staff_id=id_maps["staff"][row["staff_id"]],
+            attendance_date=_parse_dt(row.get("attendance_date")),
+            status=row.get("status", "present"),
+            check_in_time=_parse_dt(row.get("check_in_time")),
+            check_out_time=_parse_dt(row.get("check_out_time")),
+            notes=row.get("notes"),
+            created_at=_parse_dt(row.get("created_at")),
+            updated_at=_parse_dt(row.get("updated_at")),
+        ))
+
+    db.commit()
+    return (new_branch_id, new_branch_name)
+
+
+@router.post("/import-branch", status_code=200)
+async def import_branch(
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Import one branch from an exported backup JSON into the current owner's company.
+    Creates a new branch and loads staff, services, memberships, customers, appointments,
+    invoices, attendance, leaves, etc. with the new branch id. Only the owner (or superuser)
+    can use this. Managers see only their branch; owner sees all branches including imported ones.
+    """
+    if _role_value(current_user.role) != "owner" and not current_user.is_superuser:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only salon owners can import branch data.",
+        )
+    if not current_user.company_id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="No company associated with this account.",
+        )
+    if not file.filename or not file.filename.endswith(".json"):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Please upload a .json file from Export Data.",
+        )
+    content = await file.read()
+    try:
+        data = json.loads(content.decode("utf-8"))
+    except json.JSONDecodeError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Invalid JSON: {e}",
+        )
+    if data.get("version") != 1:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Unsupported export version. Use a backup file from Export data.",
+        )
+    try:
+        new_branch_id, new_branch_name = _run_import_branch(
+            db, data, current_user.company_id, current_user.id
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Import failed: {str(e)}",
+        )
+    return {
+        "message": f"Branch '{new_branch_name}' imported successfully. You can view it in Branch settings and use GST export for all branches as usual.",
+        "branch_id": new_branch_id,
+        "branch_name": new_branch_name,
+    }
+
+
 @router.post("/import")
 async def import_data(
     file: UploadFile = File(...),

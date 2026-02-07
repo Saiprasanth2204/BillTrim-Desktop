@@ -17,9 +17,9 @@ async def create_leave(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    """Create a leave record for a staff member"""
+    """Create a leave record for a staff member (active staff only)"""
     effective_company_id = get_effective_company_id(current_user)
-    query = db.query(Staff).filter(Staff.id == leave.staff_id)
+    query = db.query(Staff).filter(Staff.id == leave.staff_id, Staff.is_active == True)
     if effective_company_id is not None:
         query = query.filter(Staff.company_id == effective_company_id)
     staff = query.first()
@@ -144,7 +144,7 @@ async def list_leaves(
     effective_company_id = get_effective_company_id(current_user)
     effective_branch_id = get_effective_branch_id(current_user, branch_id)
     
-    query = db.query(StaffLeave).join(Staff)
+    query = db.query(StaffLeave).join(Staff).filter(Staff.is_active == True)
     if effective_company_id is not None:
         query = query.filter(Staff.company_id == effective_company_id)
     if effective_branch_id is not None:
@@ -194,9 +194,9 @@ async def check_staff_on_leave_today(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    """Check if a staff member is on leave today"""
+    """Check if a staff member is on leave today (active staff only)"""
     effective_company_id = get_effective_company_id(current_user)
-    query = db.query(Staff).filter(Staff.id == staff_id)
+    query = db.query(Staff).filter(Staff.id == staff_id, Staff.is_active == True)
     if effective_company_id is not None:
         query = query.filter(Staff.company_id == effective_company_id)
     staff = query.first()
@@ -239,7 +239,7 @@ async def get_leave(
 ):
     """Get leave by ID"""
     effective_company_id = get_effective_company_id(current_user)
-    query = db.query(StaffLeave).join(Staff).filter(StaffLeave.id == leave_id)
+    query = db.query(StaffLeave).join(Staff).filter(StaffLeave.id == leave_id, Staff.is_active == True)
     if effective_company_id is not None:
         query = query.filter(Staff.company_id == effective_company_id)
     leave = query.first()
@@ -255,9 +255,9 @@ async def update_leave(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    """Update leave record"""
+    """Update leave record (only for active staff)"""
     effective_company_id = get_effective_company_id(current_user)
-    query = db.query(StaffLeave).join(Staff).filter(StaffLeave.id == leave_id)
+    query = db.query(StaffLeave).join(Staff).filter(StaffLeave.id == leave_id, Staff.is_active == True)
     if effective_company_id is not None:
         query = query.filter(Staff.company_id == effective_company_id)
     leave = query.first()
@@ -329,9 +329,9 @@ async def delete_leave(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    """Delete leave record"""
+    """Delete leave record (only for active staff)"""
     effective_company_id = get_effective_company_id(current_user)
-    query = db.query(StaffLeave).join(Staff).filter(StaffLeave.id == leave_id)
+    query = db.query(StaffLeave).join(Staff).filter(StaffLeave.id == leave_id, Staff.is_active == True)
     if effective_company_id is not None:
         query = query.filter(Staff.company_id == effective_company_id)
     leave = query.first()

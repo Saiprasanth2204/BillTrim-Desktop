@@ -85,11 +85,24 @@ async def http_exception_handler(request: Request, exc: StarletteHTTPException):
 
 @app.exception_handler(RequestValidationError)
 async def validation_exception_handler(request: Request, exc: RequestValidationError):
-    """Validation exception handler with CORS headers"""
+    """Validation exception handler with CORS headers.
+    When the error is 'current_user' / auth missing, return 401 so the client treats it as session expired.
+    """
     cors_headers = get_cors_headers(request)
+    errors = exc.errors()
+    # If this is "current_user" / auth dependency missing (no token), return 401 instead of 422
+    for err in errors:
+        loc = err.get("loc") or []
+        loc_str = " ".join(str(x) for x in loc).lower()
+        if "current_user" in loc_str and err.get("type") == "missing":
+            return JSONResponse(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                content={"detail": "Authentication required"},
+                headers={**cors_headers, "WWW-Authenticate": "Bearer"},
+            )
     return JSONResponse(
         status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-        content={"detail": exc.errors()},
+        content={"detail": errors},
         headers=cors_headers
     )
 

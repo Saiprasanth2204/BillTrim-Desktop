@@ -48,6 +48,7 @@ def get_current_user(
     token: Optional[str] = Depends(oauth2_scheme),
     db: Session = Depends(get_db),
 ) -> Any:
+
     """Returns the current User. Annotated as Any so FastAPI does not use SQLAlchemy User as a Pydantic response type."""
     credentials_exception = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
@@ -95,7 +96,6 @@ def get_current_user(
                 detail="Session expired or invalid",
                 headers={"WWW-Authenticate": "Bearer"},
             )
-
     return user
 
 

@@ -132,8 +132,8 @@ async def list_attendance(
                 else:
                     end = end.astimezone(timezone.utc)
             
-            # Query leaves that overlap with the date range
-            leave_query = db.query(StaffLeave).join(Staff)
+            # Query leaves that overlap with the date range (only active staff)
+            leave_query = db.query(StaffLeave).join(Staff).filter(Staff.is_active == True)
             if effective_company_id is not None:
                 leave_query = leave_query.filter(Staff.company_id == effective_company_id)
             

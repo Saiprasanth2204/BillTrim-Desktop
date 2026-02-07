@@ -269,8 +269,8 @@ async def get_staff_availability_calendar(
         
         all_staff = staff_query.all()
         
-        # Get all leaves in the date range
-        leave_query = db.query(StaffLeave).join(Staff)
+        # Get all leaves in the date range (only active staff)
+        leave_query = db.query(StaffLeave).join(Staff).filter(Staff.is_active == True)
         if effective_company_id is not None:
             leave_query = leave_query.filter(Staff.company_id == effective_company_id)
         if effective_branch_id is not None:
