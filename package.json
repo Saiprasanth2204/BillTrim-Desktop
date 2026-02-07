@@ -1,0 +1,145 @@
+{
+  "name": "billtrim-desktop",
+  "version": "1.0.0",
+  "description": "BillTrim Desktop - Salon Management Application",
+  "main": "electron/main.js",
+  "scripts": {
+    "electron:dev": "cross-env NODE_ENV=development electron .",
+    "electron:build": "npm run build:frontend && npm run build:standalone-backend && CSC_IDENTITY_AUTO_DISCOVERY=false electron-builder",
+    "electron:build:mac": "npm run build:frontend && npm run build:standalone-backend && CSC_IDENTITY_AUTO_DISCOVERY=false electron-builder --mac",
+    "electron:build:win": "npm run build:frontend && npm run build:standalone-backend && CSC_IDENTITY_AUTO_DISCOVERY=false electron-builder --win",
+    "build:frontend": "cd frontend && npm install && npm run build",
+    "build:backend": "cd backend && pip install -r requirements.txt",
+    "build:standalone-backend": "node scripts/build-standalone-backend.js",
+    "prepare:bundle": "npm run build:standalone-backend",
+    "postinstall": "electron-builder install-app-deps"
+  },
+  "keywords": [
+    "salon",
+    "management",
+    "desktop",
+    "electron"
+  ],
+  "author": "BillTrim",
+  "license": "MIT",
+  "devDependencies": {
+    "cross-env": "^7.0.3",
+    "electron": "^40.2.1",
+    "electron-builder": "^26.7.0"
+  },
+  "build": {
+    "appId": "com.billtrim.desktop",
+    "productName": "BillTrim Desktop",
+    "directories": {
+      "output": "dist-electron",
+      "buildResources": "build"
+    },
+    "files": [
+      "electron/**/*",
+      "frontend/dist/**/*",
+      "backend/**/*",
+      "!backend/**/__pycache__/**/*",
+      "!backend/**/*.pyc",
+      "!backend/venv/**/*",
+      "!backend/.env",
+      "!backend/data/**/*",
+      "!backend/uploads/**/*",
+      "!**/node_modules/**/*",
+      "!**/.git/**/*"
+    ],
+    "extraResources": [
+      {
+        "from": "backend",
+        "to": "backend",
+        "filter": [
+          "**/*",
+          "!**/__pycache__/**",
+          "!**/*.pyc",
+          "!venv/**",
+          "!.env",
+          "!data/**",
+          "!uploads/**"
+        ]
+      },
+      {
+        "from": "build/bundled-venv",
+        "to": "bundled-venv",
+        "filter": [
+          "**/*"
+        ]
+      }
+    ],
+    "mac": {
+      "category": "public.app-category.business",
+      "target": [
+        {
+          "target": "dmg",
+          "arch": [
+            "x64",
+            "arm64"
+          ]
+        },
+        {
+          "target": "zip",
+          "arch": [
+            "x64",
+            "arm64"
+          ]
+        }
+      ],
+      "icon": "build/icon.icns",
+      "hardenedRuntime": false,
+      "gatekeeperAssess": false,
+      "strictVerify": false,
+      "identity": null
+    },
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64",
+            "ia32"
+          ]
+        },
+        {
+          "target": "portable",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": "build/icon.ico",
+      "requestedExecutionLevel": "asInvoker"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "BillTrim Desktop"
+    },
+    "dmg": {
+      "title": "BillTrim Desktop Installer",
+      "icon": "build/icon.icns",
+      "contents": [
+        {
+          "x": 410,
+          "y": 150,
+          "type": "link",
+          "path": "/Applications"
+        },
+        {
+          "x": 130,
+          "y": 150,
+          "type": "file"
+        }
+      ],
+      "window": {
+        "width": 540,
+        "height": 380
+      }
+    },
+    "publish": null
+  }
+}

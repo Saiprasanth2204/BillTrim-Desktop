@@ -1,0 +1,26 @@
+# PyCharm Breakpoints Configuration
+# Copy these breakpoint locations to set up debugging
+
+# Revenue Daily Endpoint Breakpoints:
+# Line 130 - Function entry point
+# Line 131 - After getting start_date_raw
+# Line 147 - After string conversion
+# Line 197 - After replace() call
+# Line 217 - BEFORE fromisoformat(start_date_clean) - CRITICAL
+# Line 220 - BEFORE fromisoformat(end_date_clean) - CRITICAL
+
+# Attendance Daily Endpoint Breakpoints:
+# Line 392 - Function entry point
+# Line 393 - After getting start_date_raw
+# Line 409 - After string conversion
+# Line 461 - After replace() call
+# Line 481 - BEFORE fromisoformat(start_date_clean) - CRITICAL
+# Line 484 - BEFORE fromisoformat(end_date_clean) - CRITICAL
+
+# Key Variables to Watch:
+# - start_date_raw (type and value)
+# - start_date_str (type and value)
+# - start_date_clean (type and value - MUST be str before fromisoformat)
+# - end_date_raw (type and value)
+# - end_date_str (type and value)
+# - end_date_clean (type and value - MUST be str before fromisoformat)

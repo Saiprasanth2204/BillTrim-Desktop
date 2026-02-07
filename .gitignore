@@ -1,0 +1,108 @@
+# -----------------------------------------------------------------------------
+# BillTrim Desktop - Git ignore
+# -----------------------------------------------------------------------------
+
+# ----- Python (backend) -----
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+backend/build/
+develop-eggs/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+venv/
+.venv/
+env/
+ENV/
+.pytest_cache/
+.coverage
+htmlcov/
+.mypy_cache/
+*.manifest
+
+# ----- Backend data & secrets -----
+backend/data/
+backend/uploads/
+backend/logs/
+*.db
+*.sqlite
+*.sqlite3
+.env
+.env.local
+.env.*.local
+*.key
+
+# ----- Node / npm -----
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.npm
+.yarn-integrity
+.pnp.*
+frontend/node_modules/
+
+# ----- Frontend -----
+frontend/dist/
+frontend/.env
+frontend/.env.local
+*.local
+
+# ----- Electron / build outputs -----
+dist-electron/
+out/
+release/
+*.dmg
+*.exe
+*.msi
+*.AppImage
+*.deb
+*.rpm
+*.zip
+*.blockmap
+bundled-venv/
+
+# ----- IDE & editors -----
+.idea/
+.vscode/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+*.swo
+*~
+
+# ----- OS -----
+.DS_Store
+.DS_Store?
+._*
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# ----- Logs & temp -----
+*.log
+logs/
+tmp/
+temp/
+*.tmp
+*.temp
+*.bak
+*.backup
+
+# ----- Optional: keep .env.example tracked -----
+# (do not ignore .env.example)
+/frontend/
