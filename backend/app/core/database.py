@@ -40,8 +40,10 @@ Base = declarative_base()
 def get_db():
     db = SessionLocal()
     try:
-        logger.error("get_db: opened")
         yield db
+        db.commit()
+    except:
+        db.rollback()
+        raise
     finally:
-        logger.error("get_db: closing")
         db.close()
